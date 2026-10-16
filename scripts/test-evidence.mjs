@@ -1,0 +1,17 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const context=vm.createContext({URL,Date,Map,uiLang:'th',esc:v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),vocabularyPanel:()=>'',document:{}});
+vm.runInContext(fs.readFileSync('public/evidence.js','utf8'),context);vm.runInContext(fs.readFileSync('public/ai-ui.js','utf8'),context);
+const now=Date.parse('2026-10-16T12:00:00Z'),headline={url:'https://example.com/news',publisher:'Example',title:'A headline',publishedAt:'2026-10-16T01:00:00Z',source:'GDELT'};
+let score=context.assessNewsEvidence(headline,now);assert.equal(score.score,30);assert.equal(score.checks.find(x=>x.id==='date').earned,0);assert.equal(score.checks.find(x=>x.id==='text').earned,0);
+assert.equal(context.assessNewsEvidence({...headline,dateKind:'published'},now).score,40);
+const complete={...headline,dateKind:'published',desc:'a'.repeat(1200)};
+score=context.assessNewsEvidence(complete,now);assert.equal(score.score,80);assert.equal(score.truthProbability,null);assert.equal(score.independentlyVerified,false);assert.equal(score.checks.find(x=>x.id==='independent').earned,0);
+assert.equal(context.assessNewsEvidence({},now).score,0);
+assert.equal(context.assessNewsEvidence({...complete,publishedAt:'2027-01-01'},now).score,70);
+assert.equal(context.assessNewsEvidence({...headline,desc:'a'.repeat(100),content:'a'.repeat(100)},now).bodyCharacters,100,'Identical excerpts are not counted twice');
+assert.equal(context.assessNewsEvidence({...complete,url:'http://example.com/news'},now).score,80,'HTTPS is not treated as proof of credibility');
+const html=context.evidencePanel(headline,{trustScore:100,logic:{score:null,reason:{th:'ข้อมูลไม่พอ',en:'Not enough text'}},clickbait:{score:10,reason:{th:'ประเมินข้อความ',en:'Text signal only'}}});
+assert(html.includes('<strong>30<small>/100</small>'),'Ring uses the transparent information calculation, never a model truth score');
+assert(html.includes('ไม่ใช่เปอร์เซ็นต์ความจริง'));assert(html.includes('ข้อมูลไม่พอ'));assert(html.includes('20 +'));
+context.uiLang='en';assert(context.evidencePanel(headline,null).includes('not a truth probability'));
+console.log('PASS: headline-only readiness, observed vs published dates, explicit weights, 80-point ceiling without verification, future dates, duplicate text, bilingual UI and no fabricated truth probability');
